@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Pixel Art Palette Swapper</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161923;
+    --text: #e6e6e6;
+    --muted: #9ba3b4;
+    --accent: #6aa6ff;
+    --border: #2a2f3a;
+  }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; }
+.wrap {
+  display: grid;
+  /* left | sep | middle | sep | right */
+  grid-template-columns: 1fr 8px 360px 8px 1fr;
+  gap: 14px;
+  padding: 14px;
+  height: 100%;
+  box-sizing: border-box;
+}
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .panel h2 { font-size: 14px; letter-spacing: .4px; margin: 0 0 4px; color: var(--muted); font-weight: 600; text-transform: uppercase; }
+  .canvasBox { position: relative; display: grid; place-items: center; background: #0b0d13; border: 1px dashed #2a3140; border-radius: 10px; min-height: 280px; }
+  canvas { max-width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; background: #0000; }
+  .hint { font-size: 12px; color: var(--muted); text-align: center; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  button, label.button { background: #232836; color: var(--text); border: 1px solid var(--border); padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+  button:hover, label.button:hover { border-color: #3a4254; }
+/* place this near your other .swatch styles */
+input.swatchInput {
+  /* reset native look */
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid #0007;
+  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent; /* color swatch is drawn by the control */
+  cursor: pointer;
+}
+input.swatchInput::-webkit-color-swatch-wrapper { padding: 0; }
+input.swatchInput::-webkit-color-swatch { border: none; border-radius: 6px; }
+input.swatchInput::-moz-color-swatch { border: none; border-radius: 6px; }
+  input[type="file"] { display: none; }
+  .middle { width: 360px; }
+  .palettes { display: grid; grid-template-columns: 1fr; gap: 10px; }
+  .pal { background: #10131b; border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+  .palHeader { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .grid { display: grid; grid-template-columns: repeat(8, 32px); gap: 8px; }
+  .swatch { width: 32px; height: 32px; border-radius: 6px; border: 1px solid #0007; position: relative; cursor: default; }
+  .swatch.to { cursor: pointer; outline: 2px solid #0000; }
+  .swatch.to:focus-visible { outline: 2px solid var(--accent); }
+  .swatch small { position: absolute; left: 50%; transform: translateX(-50%); bottom: -16px; font-size: 10px; color: var(--muted); white-space: nowrap; }
+  .legend { display: flex; gap: 12px; align-items: center; font-size: 12px; color: var(--muted); }
+  .badge { background: #1b2130; border: 1px solid var(--border); padding: 2px 6px; border-radius: 999px; }
+  .sep { width: 1px; background: var(--border); }
+  .footer { font-size: 12px; color: var(--muted); text-align: center; }
+  .warning { color: #ffcc66; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- Left: Source -->
+    <section class="panel">
+      <h2>Source (paste, drop, or load)</h2>
+      <div id="srcDrop" class="canvasBox" tabindex="0" aria-label="Paste or drop an image here">
+        <canvas id="src" width="0" height="0"></canvas>
+        <div class="hint">Paste with Ctrl/Cmd+V • or drag & drop • or use “Load image”</div>
+      </div>
+      <div class="controls">
+        <label class="button">
+          Load image
+          <input id="fileInput" type="file" accept="image/*" />
+        </label>
+        <button id="resetTo">Reset “to” palette</button>
+        <span id="srcMeta" class="legend"></span>
+      </div>
+    </section>
+
+    <div class="sep"></div>
+
+    <!-- Middle: Palettes -->
+    <section class="panel middle">
+      <h2>Palette Mapping</h2>
+      <div class="palettes">
+        <div class="pal" id="fromPal">
+          <div class="palHeader">
+            <strong>From (extracted)</strong>
+            <span class="legend">
+              <span class="badge" id="colorCount">0 colors</span>
+              <span class="badge" id="uniqueWarn" hidden>large palette</span>
+            </span>
+          </div>
+          <div id="gridFrom" class="grid"></div>
+        </div>
+        <div class="pal" id="toPal">
+          <div class="palHeader">
+            <strong>To (editable)</strong>
+            <span class="legend">Click a swatch to recolor</span>
+          </div>
+          <div id="gridTo" class="grid"></div>
+        </div>
+      </div>
+      <div class="footer">
+        Tip: while the color picker is open, changes are applied live as you drag.
+      </div>
+    </section>
+
+    <div class="sep"></div>
+
+    <!-- Right: Destination -->
+    <section class="panel">
+      <h2>Destination (recolored)</h2>
+      <div class="canvasBox">
+        <canvas id="dst" width="0" height="0"></canvas>
+      </div>
+      <div class="controls">
+        <button id="copyBtn">Copy to clipboard</button>
+        <button id="dlBtn">Download PNG</button>
+        <span id="dstMeta" class="legend"></span>
+      </div>
+    </section>
+  </div>
+
+<script>
+(() => {
+  const srcCanvas = document.getElementById('src');
+  const dstCanvas = document.getElementById('dst');
+  const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
+  const dstCtx = dstCanvas.getContext('2d');
+
+  const fileInput = document.getElementById('fileInput');
+  const copyBtn = document.getElementById('copyBtn');
+  const dlBtn = document.getElementById('dlBtn');
+  const resetToBtn = document.getElementById('resetTo');
+  const srcDrop = document.getElementById('srcDrop');
+
+  const gridFrom = document.getElementById('gridFrom');
+  const gridTo = document.getElementById('gridTo');
+  const colorCount = document.getElementById('colorCount');
+  const uniqueWarn = document.getElementById('uniqueWarn');
+  const srcMeta = document.getElementById('srcMeta');
+  const dstMeta = document.getElementById('dstMeta');
+
+  // State
+  let srcImageData = null;
+  let fromPalette = []; // [{rgba:[r,g,b,a], hex:'#rrggbb', count:n}]
+  let toPalette = [];   // ['#rrggbb']
+  let fromIndexByRGBA = new Map(); // 'r,g,b,a' -> index
+  const LARGE_PALETTE_THRESHOLD = 128; // show a warning if bigger
+
+  // Utility conversions
+  const clamp = (n) => Math.min(255, Math.max(0, n|0));
+  const toHex2 = (n) => n.toString(16).padStart(2, '0');
+  const rgbaKey = (r,g,b,a) => `${r},${b},${g},${a}`; // (intentionally) weird order? No—use standard order:
+  const rgbaKeyStd = (r,g,b,a) => `${r},${g},${b},${a}`;
+  const rgbToHex = (r,g,b) => `#${toHex2(r)}${toHex2(g)}${toHex2(b)}`;
+  const hexToRgb = (hex) => {
+    const s = hex.replace('#','');
+    return [parseInt(s.slice(0,2),16), parseInt(s.slice(2,4),16), parseInt(s.slice(4,6),16)];
+  };
+
+  function setCanvasSize(canvas, w, h) {
+    canvas.width = w;
+    canvas.height = h;
+    canvas.style.width = Math.min(w, 800) + 'px';
+    const scale = (canvas.style.width.replace('px','') / w);
+    canvas.style.height = (h * scale) + 'px';
+  }
+
+  function drawImageToCanvases(img) {
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    setCanvasSize(srcCanvas, w, h);
+    setCanvasSize(dstCanvas, w, h);
+    srcCtx.clearRect(0,0,w,h);
+    dstCtx.clearRect(0,0,w,h);
+    srcCtx.imageSmoothingEnabled = false;
+    dstCtx.imageSmoothingEnabled = false;
+    srcCtx.drawImage(img, 0, 0, w, h);
+    // Start with destination as a direct copy
+    const id = srcCtx.getImageData(0,0,w,h);
+    srcImageData = id; // keep original source colors
+    dstCtx.putImageData(id, 0, 0);
+
+    // Palette handling
+    const palette = extractPalette(id);
+    fromPalette = palette;
+    toPalette = palette.map(p => p.hex);
+    fromIndexByRGBA = new Map(fromPalette.map((p, i) => [rgbaKeyStd(...p.rgba), i]));
+    renderPalettes();
+    updateMeta();
+  }
+
+  function extractPalette(imageData) {
+    const { data } = imageData;
+    const map = new Map();
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
+      const key = rgbaKeyStd(r,g,b,a);
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    // Build array; ignore fully transparent if you prefer (keep for completeness)
+    const arr = [];
+    for (const [key, count] of map) {
+      const parts = key.split(',').map(Number);
+      const [r,g,b,a] = parts;
+      arr.push({ rgba: [r,g,b,a], hex: rgbToHex(r,g,b), count });
+    }
+    // Sort by frequency desc (more common first)
+    arr.sort((a,b) => b.count - a.count);
+    return arr;
+  }
+
+function renderPalettes() {
+  // Clear
+  gridFrom.innerHTML = '';
+  gridTo.innerHTML = '';
+
+  // Warning for large palettes
+  colorCount.textContent = `${fromPalette.length} colors`;
+  if (fromPalette.length > LARGE_PALETTE_THRESHOLD) {
+    uniqueWarn.hidden = false;
+    uniqueWarn.classList.add('warning');
+    uniqueWarn.textContent = 'Large palette: operations may be slow';
+  } else {
+    uniqueWarn.hidden = true;
+  }
+
+  // Render FROM (read-only)
+  fromPalette.forEach((p, idx) => {
+    const sw = document.createElement('div');
+    sw.className = 'swatch';
+    sw.title = `${p.hex} • #${idx} • ${p.count} px`;
+    sw.style.background = p.hex;
+
+    const label = document.createElement('small');
+    label.textContent = idx;
+    sw.appendChild(label);
+
+    gridFrom.appendChild(sw);
+  });
+
+  // Render TO (editable as visible color inputs)
+  toPalette.forEach((hex, idx) => {
+    const wrapper = document.createElement('div');
+    wrapper.style.position = 'relative';
+
+    const input = document.createElement('input');
+    input.type = 'color';
+    input.value = hex;
+    input.className = 'swatchInput swatch to';
+    input.title = `Change color for “from #${idx}” (${fromPalette[idx]?.hex || '?'})`;
+    input.setAttribute('aria-label', `Change color for from index ${idx}`);
+
+    // live recolor while dragging, and on final change
+    const onPick = () => {
+      const value = input.value;
+      toPalette[idx] = value;
+      recolor();
+    };
+    input.addEventListener('input', onPick);
+    input.addEventListener('change', onPick);
+
+    const label = document.createElement('small');
+    label.textContent = idx;
+
+    wrapper.appendChild(input);
+    wrapper.appendChild(label);
+    gridTo.appendChild(wrapper);
+  });
+}
+
+  function recolor() {
+    if (!srcImageData) return;
+    const { width: w, height: h, data: srcData } = srcImageData;
+    const out = dstCtx.createImageData(w, h);
+    const odata = out.data;
+
+    // Build quick lookup: rgbaKeyStd -> [r,g,b] replacement
+    // Replacement keeps original alpha.
+    const map = new Map();
+    for (let i = 0; i < fromPalette.length; i++) {
+      const k = rgbaKeyStd(...fromPalette[i].rgba);
+      map.set(k, hexToRgb(toPalette[i] || fromPalette[i].hex));
+    }
+
+    for (let i = 0; i < srcData.length; i += 4) {
+      const r = srcData[i], g = srcData[i+1], b = srcData[i+2], a = srcData[i+3];
+      const key = rgbaKeyStd(r,g,b,a);
+      const repl = map.get(key);
+      if (repl) {
+        odata[i]   = clamp(repl[0]);
+        odata[i+1] = clamp(repl[1]);
+        odata[i+2] = clamp(repl[2]);
+        odata[i+3] = a; // preserve alpha
+      } else {
+        // If source color not in palette map (shouldn't happen), copy through
+        odata[i]   = r;
+        odata[i+1] = g;
+        odata[i+2] = b;
+        odata[i+3] = a;
+      }
+    }
+    dstCtx.putImageData(out, 0, 0);
+    updateMeta();
+  }
+
+  function updateMeta() {
+    if (!srcImageData) { srcMeta.textContent = ''; dstMeta.textContent=''; return; }
+    const w = srcImageData.width, h = srcImageData.height;
+    srcMeta.textContent = `${w}×${h}`;
+    dstMeta.textContent = `${w}×${h}`;
+  }
+
+  // Loading helpers
+  function loadImageFromBlob(blob) {
+    const img = new Image();
+    img.onload = () => drawImageToCanvases(img);
+    img.onerror = () => alert('Could not load image.');
+    img.src = URL.createObjectURL(blob);
+  }
+
+  function handleFile(file) {
+    if (!file || !file.type.startsWith('image/')) {
+      alert('Please choose an image file.');
+      return;
+    }
+    loadImageFromBlob(file);
+  }
+
+  async function handlePasteEvent(e) {
+    if (!e.clipboardData) return;
+    const items = e.clipboardData.items;
+    for (const it of items) {
+      if (it.type.startsWith('image/')) {
+        const blob = it.getAsFile();
+        if (blob) {
+          e.preventDefault();
+          loadImageFromBlob(blob);
+          return;
+        }
+      }
+    }
+  }
+
+  function setupDnD(el) {
+    ['dragenter','dragover','dragleave','drop'].forEach(ev => {
+      el.addEventListener(ev, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+    });
+    el.addEventListener('dragover', () => el.style.borderColor = 'var(--accent)');
+    el.addEventListener('dragleave', () => el.style.borderColor = '#2a3140');
+    el.addEventListener('drop', (e) => {
+      el.style.borderColor = '#2a3140';
+      const file = e.dataTransfer.files?.[0];
+      if (file) handleFile(file);
+    });
+  }
+
+  // Copy / Download
+  async function copyToClipboard() {
+    try {
+      await new Promise((resolve, reject) => {
+        dstCanvas.toBlob(async (blob) => {
+          try {
+            if (!blob) return reject(new Error('No image data.'));
+            const item = new ClipboardItem({ [blob.type]: blob });
+            await navigator.clipboard.write([item]);
+            resolve();
+          } catch (err) { reject(err); }
+        }, 'image/png');
+      });
+      alert('Copied to clipboard!');
+    } catch (err) {
+      console.error(err);
+      alert('Clipboard copy failed (your browser may not allow it on this page).');
+    }
+  }
+
+async function downloadPNG() {
+  // Render canvas to a PNG Blob
+  const blob = await new Promise((resolve, reject) =>
+    dstCanvas.toBlob(b => b ? resolve(b) : reject(new Error('No image data')), 'image/png')
+  );
+
+  // Preferred: native Save dialog (Chromium: Chrome, Edge, Opera; requires secure context https:)
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: 'recolored.png',
+        types: [{ description: 'PNG Image', accept: { 'image/png': ['.png'] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    } catch (err) {
+      // user canceled or error; fall through to anchor download as a backup
+      console.warn('showSaveFilePicker failed or was cancelled:', err);
+    }
+  }
+
+  // Fallback: prompt for a filename, then trigger a download
+  const name = (prompt('File name for download:', 'recolored.png') || 'recolored.png').trim() || 'recolored.png';
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;  // user can still change name if their browser shows a dialog
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+  // Reset “to” palette to match “from” exactly
+  function resetToPalette() {
+    if (!fromPalette.length) return;
+    toPalette = fromPalette.map(p => p.hex);
+    renderPalettes();
+    recolor();
+  }
+
+  // Wire up events
+  window.addEventListener('paste', handlePasteEvent);
+  fileInput.addEventListener('change', () => handleFile(fileInput.files?.[0]));
+  setupDnD(srcDrop);
+  copyBtn.addEventListener('click', copyToClipboard);
+  dlBtn.addEventListener('click', downloadPNG);
+  resetToBtn.addEventListener('click', resetToPalette);
+
+  // Optional: small demo placeholder (blank), user will paste or load.
+})();
+</script>
+</body>
+</html>
